@@ -86,7 +86,7 @@ class BluetoothManager: NSObject, ObservableObject {
         logger.info("Starting Bluetooth scan for service UUID: \(self.targetServiceUUID)")
         isScanning = true
         discoveredDevices.removeAll()
-        centralManager.scanForPeripherals(withServices: [targetServiceUUID], options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+        centralManager.scanForPeripherals(withServices: [targetServiceUUID], options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
     
     func stopScanning() {
@@ -117,6 +117,7 @@ class BluetoothManager: NSObject, ObservableObject {
     func connectToDeviceWithIdentifier(_ identifier: String) {
         logger.info("Attempting to connect to device with name: \(identifier)")
         pendingConnectionName = identifier
+        connectionStatus = .connecting  // Set status to connecting immediately
         
         // First check if we've already discovered the device
         if let peripheral = discoveredDevices.first(where: { $0.name == identifier }) {
@@ -130,14 +131,16 @@ class BluetoothManager: NSObject, ObservableObject {
         startScanning()
         
         // Set a timeout for the connection attempt
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
             guard let self = self,
-                  self.pendingConnectionName == identifier,
-                  case .connecting = self.connectionStatus else { return }
+                  self.pendingConnectionName == identifier else { return }
             
-            self.logger.error("Connection timeout for device: \(identifier)")
-            self.stopScanning()
-            self.connectionStatus = .error("Device not found after scanning")
+            // Only show error if we're still looking for this device
+            if case .connecting = self.connectionStatus {
+                self.logger.error("Connection timeout for device: \(identifier)")
+                self.stopScanning()
+                self.connectionStatus = .error("Device '\(identifier)' not found. Please make sure the device is powered on and nearby.")
+            }
             self.pendingConnectionName = nil
         }
     }
@@ -218,19 +221,18 @@ extension BluetoothManager: CBCentralManagerDelegate {
     }
     
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
-        logger.info("Discovered peripheral - Name: \(peripheral.name ?? "unnamed"), ID: \(peripheral.identifier.uuidString), RSSI: \(RSSI)")
-        
-        // Add to discovered devices if not already present
+        // Only log and add if this is a new device
         if !discoveredDevices.contains(where: { $0.identifier == peripheral.identifier }) {
+            logger.info("Discovered new peripheral - Name: \(peripheral.name ?? "unnamed"), ID: \(peripheral.identifier.uuidString), RSSI: \(RSSI)")
             discoveredDevices.append(peripheral)
-        }
-        
-        // If we're looking for a specific device by name, try to connect
-        if let pendingName = pendingConnectionName,
-           peripheral.name == pendingName {
-            logger.info("Found pending connection device: \(pendingName)")
-            stopScanning()
-            connect(to: peripheral)
+            
+            // If we're looking for a specific device by name, try to connect
+            if let pendingName = pendingConnectionName,
+               peripheral.name == pendingName {
+                logger.info("Found pending connection device: \(pendingName)")
+                stopScanning()
+                connect(to: peripheral)
+            }
         }
     }
     

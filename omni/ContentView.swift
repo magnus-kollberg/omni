@@ -10,15 +10,6 @@ import CoreBluetooth
 import os.log
 
 struct ContentView: View {
-    @StateObject private var bluetoothManager = BluetoothManager.shared
-    @State private var showScanner = false
-    @State private var showDeviceList = false
-    @State private var scannedCode: String?
-    @State private var showAlert = false
-    @State private var alertMessage = ""
-    
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "QRScanner")
-    
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
@@ -32,19 +23,19 @@ struct ContentView: View {
                 }
                 .padding(.bottom, 16)
                 
-                Text("Omni Provisioning")
+                Text("Omni")
                     .font(.largeTitle)
                     .fontWeight(.bold)
                     .padding(.bottom, 32)
                 
-                // Main Buttons
+                // Main Options
                 VStack(spacing: 16) {
-                    Button(action: {
-                        showScanner = true
-                    }) {
+                    NavigationLink {
+                        ProvisionView()
+                    } label: {
                         HStack {
-                            Image(systemName: "qrcode.viewfinder")
-                            Text("Connect with QR Code")
+                            Image(systemName: "wifi")
+                            Text("Provision Device")
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -53,13 +44,12 @@ struct ContentView: View {
                         .cornerRadius(10)
                     }
                     
-                    Button(action: {
-                        bluetoothManager.startScanning()
-                        showDeviceList = true
-                    }) {
+                    NavigationLink {
+                        ConfigureView()
+                    } label: {
                         HStack {
-                            Image(systemName: "bluetooth")
-                            Text("Scan for Devices")
+                            Image(systemName: "gearshape")
+                            Text("Configure Device")
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -73,68 +63,16 @@ struct ContentView: View {
                 Spacer()
             }
             .padding()
-            .navigationDestination(isPresented: $showDeviceList) {
-                DeviceListView(bluetoothManager: bluetoothManager)
-            }
-            .navigationDestination(
-                isPresented: .init(
-                    get: { bluetoothManager.connectionStatus == .connected },
-                    set: { _ in }
-                )
-            ) {
-                DeviceStatusView(bluetoothManager: bluetoothManager)
-            }
-            .sheet(isPresented: $showScanner, onDismiss: {
-                scannedCode = nil
-            }) {
-                ZStack {
-                    QRScannerView(scannedCode: $scannedCode)
-                    VStack {
-                        Spacer()
-                        Text("Align QR code within frame")
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(8)
-                            .padding(.bottom, 40)
-                    }
-                }
-                .onChange(of: scannedCode) { newValue in
-                    if let code = newValue {
-                        handleScannedCode(code)
-                    }
-                }
-            }
-            .alert("Connection Error", isPresented: .init(
-                get: {
-                    if case .error = bluetoothManager.connectionStatus { return true }
-                    return showAlert
-                },
-                set: { showAlert = $0 }
-            )) {
-                Button("OK", role: .cancel) {
-                    showAlert = false
-                    if case .error = bluetoothManager.connectionStatus {
-                        bluetoothManager.connectionStatus = .disconnected
-                    }
-                }
-            } message: {
-                if case .error(let message) = bluetoothManager.connectionStatus {
-                    Text(message)
-                } else {
-                    Text(alertMessage)
-                }
-            }
         }
-    }
-    
-    private func handleScannedCode(_ code: String) {
-        logger.info("QR code scanned: \(code)")
-        showScanner = false
-        bluetoothManager.connectToDeviceWithIdentifier(code)
     }
 }
 
+struct ConfigureView: View {
+    var body: some View {
+        Text("Configuration Coming Soon")
+            .navigationTitle("Configure Device")
+    }
+}
 
 #Preview {
     ContentView()
