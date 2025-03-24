@@ -10,6 +10,8 @@ import CoreBluetooth
 import os.log
 
 struct ContentView: View {
+    @StateObject private var bluetoothManager = BluetoothManager.shared
+    
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
@@ -45,7 +47,7 @@ struct ContentView: View {
                     }
                     
                     NavigationLink {
-                        ConfigureView()
+                        ConfigurationView(bluetoothManager: bluetoothManager)
                     } label: {
                         HStack {
                             Image(systemName: "gearshape")
