@@ -9,12 +9,15 @@ class DeviceViewModel: ObservableObject {
     @Published var telnetSettings: String = ""
     @Published var systemStatus: String = ""
     @Published var error: String?
-    @Published var isLoading = false
+    @Published var isLoading: Bool = false
     
-    private let deviceService: DeviceService
+    let deviceName: String
+    let deviceService: DeviceService
+    
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "DeviceViewModel")
     
     init(deviceName: String) {
+        self.deviceName = deviceName
         self.deviceService = DeviceService(deviceName: deviceName)
     }
     

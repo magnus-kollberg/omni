@@ -8,28 +8,100 @@ class DeviceService {
     init(deviceName: String) {
         // Construct the base URL from the device name
         self.baseURL = "http://\(deviceName).local"
+        logger.info("Initializing DeviceService with base URL: \(self.baseURL)")
     }
     
     func fetchData(from endpoint: String) async throws -> String {
-        guard let url = URL(string: "\(baseURL)\(endpoint)") else {
+        guard let url = URL(string: "\(self.baseURL)\(endpoint)") else {
+            logger.error("Invalid URL constructed: \(self.baseURL)\(endpoint)")
             throw URLError(.badURL)
         }
         
-        let (data, response) = try await URLSession.shared.data(from: url)
+        logger.info("Fetching data from: \(url.absoluteString)")
         
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                logger.error("Invalid response type received")
+                throw URLError(.badServerResponse)
+            }
+            
+            guard httpResponse.statusCode == 200 else {
+                logger.error("Received non-200 status code: \(httpResponse.statusCode)")
+                throw URLError(.badServerResponse)
+            }
+            
+            guard let jsonString = String(data: data, encoding: .utf8) else {
+                logger.error("Failed to decode response data as UTF-8")
+                throw URLError(.cannotDecodeContentData)
+            }
+            
+            logger.info("Successfully fetched data from \(endpoint)")
+            return jsonString
+        } catch let error as URLError {
+            switch error.code {
+            case .cannotFindHost:
+                logger.error("Cannot find host: \(self.baseURL) - Check if device is on the same network and mDNS is working")
+            case .timedOut:
+                logger.error("Request timed out for \(self.baseURL) - Network might be slow or device might be unreachable")
+            case .networkConnectionLost:
+                logger.error("Network connection lost while connecting to \(self.baseURL)")
+            default:
+                logger.error("URL error: \(error.localizedDescription)")
+            }
+            throw error
+        }
+    }
+    
+    func post(endpoint: String, data: [String: Any]) async throws {
+        guard let url = URL(string: "\(self.baseURL)\(endpoint)") else {
+            logger.error("Invalid URL constructed: \(self.baseURL)\(endpoint)")
+            throw URLError(.badURL)
         }
         
-        guard httpResponse.statusCode == 200 else {
-            throw URLError(.badServerResponse)
-        }
+        logger.info("Posting data to: \(url.absoluteString)")
         
-        guard let jsonString = String(data: data, encoding: .utf8) else {
-            throw URLError(.cannotDecodeContentData)
-        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         
-        return jsonString
+        // Convert dictionary to form-urlencoded string
+        let formData = data.map { key, value in
+            let encodedKey = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+            let encodedValue = String(describing: value).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? String(describing: value)
+            return "\(encodedKey)=\(encodedValue)"
+        }.joined(separator: "&")
+        
+        request.httpBody = formData.data(using: .utf8)
+        
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            
+            guard let httpResponse = response as? HTTPURLResponse else {
+                logger.error("Invalid response type received")
+                throw URLError(.badServerResponse)
+            }
+            
+            guard httpResponse.statusCode == 200 else {
+                logger.error("Received non-200 status code: \(httpResponse.statusCode)")
+                throw URLError(.badServerResponse)
+            }
+            
+            logger.info("Successfully posted data to \(endpoint)")
+        } catch let error as URLError {
+            switch error.code {
+            case .cannotFindHost:
+                logger.error("Cannot find host: \(self.baseURL) - Check if device is on the same network and mDNS is working")
+            case .timedOut:
+                logger.error("Request timed out for \(self.baseURL) - Network might be slow or device might be unreachable")
+            case .networkConnectionLost:
+                logger.error("Network connection lost while connecting to \(self.baseURL)")
+            default:
+                logger.error("URL error: \(error.localizedDescription)")
+            }
+            throw error
+        }
     }
     
     // Network endpoints

@@ -19,7 +19,7 @@ struct ConfigurationView: View {
                 )
             } else {
                 TabView {
-                    NetworkTabView(bluetoothManager: bluetoothManager, deviceName: selectedDevice ?? "")
+                    NetworkTabView(bluetoothManager: bluetoothManager, deviceName: selectedDevice ?? "", showDeviceSelection: $showDeviceSelection)
                         .tabItem {
                             Label("Network", systemImage: "wifi")
                         }
@@ -94,11 +94,18 @@ struct NetworkTabView: View {
     @State private var wifiNetworks: [WiFiNetwork] = []
     @State private var selectedNetwork: WiFiNetwork?
     @State private var password: String = ""
-    @State private var isConnecting = false
+    @State private var isConnecting: Bool = false
+    @State private var connectionError: String?
+    @State private var showErrorAlert: Bool = false
+    @Binding var showDeviceSelection: Bool
+    let deviceService: DeviceService
     
-    init(bluetoothManager: BluetoothManager, deviceName: String) {
+    init(bluetoothManager: BluetoothManager, deviceName: String, showDeviceSelection: Binding<Bool>) {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
+        self._showDeviceSelection = showDeviceSelection
+        let service = DeviceService(deviceName: deviceName)
+        self.deviceService = service
         _viewModel = StateObject(wrappedValue: DeviceViewModel(deviceName: deviceName))
     }
     
@@ -145,29 +152,87 @@ struct NetworkTabView: View {
                 // Connect Button Section
                 Section {
                     Button(action: {
-                        // TODO: Implement connect functionality
-                        isConnecting = true
+                        connectToNetwork()
                     }) {
-                        HStack {
-                            Spacer()
-                            if isConnecting {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle())
-                            } else {
-                                Text("Connect")
-                            }
-                            Spacer()
+                        if isConnecting {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Text("Connect")
                         }
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
                     .disabled(selectedNetwork == nil || password.isEmpty || isConnecting)
+                }
+                
+                if let error = connectionError {
+                    Section {
+                        Text(error)
+                            .foregroundColor(.red)
+                    }
                 }
             }
             .navigationTitle(deviceName)
             .navigationBarTitleDisplayMode(.inline)
+            .alert("Connection Failed", isPresented: $showErrorAlert) {
+                Button("OK") {
+                    showDeviceSelection = true
+                }
+            } message: {
+                Text(connectionError ?? "Unknown error occurred")
+            }
         }
         .task {
             await viewModel.fetchAllData()
             parseWiFiData()
+        }
+    }
+    
+    private func connectToNetwork() {
+        guard let network = selectedNetwork else { return }
+        
+        let credentials = [
+            "ssid": network.ssid,
+            "password": password
+        ]
+        
+        Task {
+            isConnecting = true
+            connectionError = nil
+            
+            do {
+                // Set a timeout of 10 seconds
+                try await withTimeout(seconds: 10) {
+                    try await viewModel.deviceService.post(endpoint: "/wifi_connect", data: credentials)
+                    // Refresh all data after successful connection
+                    await viewModel.fetchAllData()
+                    parseWiFiData()
+                }
+            } catch {
+                connectionError = "Connection failed: \(error.localizedDescription)"
+                showErrorAlert = true
+            }
+            
+            isConnecting = false
+        }
+    }
+    
+    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw URLError(.timedOut)
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
     
