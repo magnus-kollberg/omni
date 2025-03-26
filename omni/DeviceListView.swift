@@ -1,9 +1,12 @@
 import SwiftUI
 import CoreBluetooth
+import os
 
 struct DeviceListView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     @Environment(\.dismiss) private var dismiss
+    @State private var showDeviceStatus = false
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "DeviceListView")
     
     var body: some View {
         List(bluetoothManager.discoveredDevices, id: \.identifier) { (peripheral: CBPeripheral) in
@@ -35,8 +38,29 @@ struct DeviceListView: View {
                 }
             }
         }
-        .onChange(of: bluetoothManager.connectionStatus) {
-            if case .error = bluetoothManager.connectionStatus {
+        .navigationDestination(
+            isPresented: .init(
+                get: { 
+                    bluetoothManager.connectionStatus == .connected && 
+                    bluetoothManager.connectedPeripheral != nil
+                },
+                set: { _ in }
+            )
+        ) {
+            DeviceStatusView(
+                bluetoothManager: bluetoothManager,
+                navigationSource: .deviceList
+            )
+        }
+        .onAppear {
+            logger.info("DeviceListView appeared")
+        }
+        .onDisappear {
+            logger.info("DeviceListView disappeared")
+        }
+        .onChange(of: bluetoothManager.connectionStatus) { status in
+            logger.info("Connection status changed to: \(String(describing: status))")
+            if case .error = status {
                 dismiss()
             }
         }

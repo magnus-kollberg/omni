@@ -10,8 +10,9 @@ struct ProvisionView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var isConnecting = false
+    @State private var navigateToDeviceStatus = false
     
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "QRScanner")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "ProvisionView")
     
     var body: some View {
         ZStack {
@@ -73,13 +74,12 @@ struct ProvisionView: View {
         .navigationDestination(isPresented: $showDeviceList) {
             DeviceListView(bluetoothManager: bluetoothManager)
         }
-        .navigationDestination(
-            isPresented: .init(
-                get: { bluetoothManager.connectionStatus == .connected },
-                set: { _ in }
+        .navigationDestination(isPresented: $navigateToDeviceStatus) {
+            DeviceStatusView(
+                bluetoothManager: bluetoothManager,
+                navigationSource: .provision,
+                allowDismiss: false
             )
-        ) {
-            DeviceStatusView(bluetoothManager: bluetoothManager)
         }
         .sheet(isPresented: $showScanner, onDismiss: {
             scannedCode = nil
@@ -102,7 +102,14 @@ struct ProvisionView: View {
                 }
             }
         }
+        .onAppear {
+            logger.info("ProvisionView appeared")
+        }
+        .onDisappear {
+            logger.info("ProvisionView disappeared")
+        }
         .onChange(of: bluetoothManager.connectionStatus) { status in
+            logger.info("Connection status changed to: \(String(describing: status))")
             switch status {
             case .connecting:
                 isConnecting = true
@@ -111,10 +118,15 @@ struct ProvisionView: View {
                 alertMessage = message
                 showAlert = true
                 showScanner = false
+                navigateToDeviceStatus = false
             case .connected:
                 isConnecting = false
+                navigateToDeviceStatus = true
             case .disconnected:
                 isConnecting = false
+                if navigateToDeviceStatus {
+                    navigateToDeviceStatus = false
+                }
             }
         }
         .alert("Connection Error", isPresented: $showAlert) {
@@ -130,6 +142,7 @@ struct ProvisionView: View {
     }
     
     private func handleScannedCode(_ code: String) {
+        logger.info("Handling scanned QR code")
         logger.info("QR code scanned: \(code)")
         if code.isEmpty {
             alertMessage = "Invalid QR code"

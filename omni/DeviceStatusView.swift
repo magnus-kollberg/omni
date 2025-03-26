@@ -1,9 +1,26 @@
 import SwiftUI
 import CoreBluetooth
+import os
+
+enum NavigationSource {
+    case deviceList
+    case provision
+}
 
 struct DeviceStatusView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.presentationMode) private var presentationMode
+    let navigationSource: NavigationSource
+    let allowDismiss: Bool
+    @State private var isNavigatingBack = false
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "DeviceStatusView")
+    
+    init(bluetoothManager: BluetoothManager, navigationSource: NavigationSource, allowDismiss: Bool = true) {
+        self.bluetoothManager = bluetoothManager
+        self.navigationSource = navigationSource
+        self.allowDismiss = allowDismiss
+    }
     
     var body: some View {
         TabView {
@@ -18,11 +35,36 @@ struct DeviceStatusView: View {
                 }
         }
         .onAppear {
+            logger.info("DeviceStatusView appeared (source: \(String(describing: navigationSource)))")
             bluetoothManager.startWiFiScan()
+            isNavigatingBack = false
         }
         .onDisappear {
-            bluetoothManager.disconnect()
+            if isNavigatingBack || !allowDismiss {
+                // Disconnect if we're navigating back OR if this was from a QR scan
+                logger.info("DeviceStatusView disappeared - cleaning up connection (source: \(String(describing: navigationSource)))")
+                bluetoothManager.disconnect()
+                bluetoothManager.connectionStatus = .disconnected
+                bluetoothManager.connectedPeripheral = nil
+            }
         }
+        .onChange(of: presentationMode.wrappedValue.isPresented) { isPresented in
+            if !isPresented {
+                // User is navigating back
+                isNavigatingBack = true
+            }
+        }
+        .toolbar {
+            if navigationSource == .provision {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Back") {
+                        isNavigatingBack = true
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .interactiveDismissDisabled(!allowDismiss)
     }
 }
 
@@ -33,6 +75,7 @@ struct ProvisioningView: View {
     @State private var password = ""
     @State private var showAlert = false
     @State private var alertMessage = ""
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "ProvisioningView")
     
     var body: some View {
         Form {
@@ -85,6 +128,12 @@ struct ProvisioningView: View {
                 }
             }
         }
+        .onAppear {
+            logger.info("ProvisioningView tab appeared")
+        }
+        .onDisappear {
+            logger.info("ProvisioningView tab disappeared")
+        }
         .onChange(of: bluetoothManager.provisioningStatus) { _ in
             switch bluetoothManager.provisioningStatus {
             case .success:
@@ -118,6 +167,7 @@ struct ProvisioningView: View {
 
 struct StatusView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "StatusView")
     
     var body: some View {
         List {
@@ -159,6 +209,12 @@ struct StatusView: View {
                 }
             }
         }
+        .onAppear {
+            logger.info("StatusView tab appeared")
+        }
+        .onDisappear {
+            logger.info("StatusView tab disappeared")
+        }
     }
     
     private var statusColor: Color {
@@ -189,5 +245,5 @@ struct StatusView: View {
 }
 
 #Preview {
-    DeviceStatusView(bluetoothManager: BluetoothManager.shared)
+    DeviceStatusView(bluetoothManager: BluetoothManager.shared, navigationSource: .deviceList, allowDismiss: true)
 } 
