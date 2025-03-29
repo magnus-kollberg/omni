@@ -3,31 +3,31 @@ import Foundation
 import os.log
 
 struct SettingsView: View {
-    @StateObject private var viewModel: DeviceViewModel
+    @StateObject private var restApiModel: RestApiModel
     
     init(deviceName: String) {
-        _viewModel = StateObject(wrappedValue: DeviceViewModel(deviceName: deviceName))
+        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
     }
     
     var body: some View {
         VStack {
-            if viewModel.isLoading {
+            if restApiModel.isLoading {
                 ProgressView("Loading...")
                     .progressViewStyle(CircularProgressViewStyle())
-            } else if let error = viewModel.error {
+            } else if let error = restApiModel.error {
                 Text(error)
                     .foregroundColor(.red)
                     .padding()
             } else {
                 ScrollView {
-                    Text(viewModel.telnetSettings)
+                    Text(restApiModel.telnetSettings)
                         .font(.system(.body, design: .monospaced))
                         .padding()
                 }
             }
         }
         .task {
-            await viewModel.fetchAllData()
+            await restApiModel.fetchAllData()
         }
     }
 } 

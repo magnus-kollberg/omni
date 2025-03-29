@@ -5,34 +5,34 @@ import Combine
 
 struct ConfigurationView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
-    @StateObject private var networkManager = NetworkDiscoveryManager()
+    @StateObject private var networkDiscoveryManager = NetworkDiscoveryManager()
     @State private var selectedDevice: String?
     @State private var showDeviceSelection = true
     
     var body: some View {
         NavigationView {
             DeviceSelectionView(
-                networkManager: networkManager,
+                networkDiscoveryManager: networkDiscoveryManager,
                 selectedDevice: $selectedDevice,
                 showDeviceSelection: $showDeviceSelection
             )
         }
         .onAppear {
-            networkManager.startDiscovery()
+            networkDiscoveryManager.startDiscovery()
         }
         .onDisappear {
-            networkManager.stopDiscovery()
+            networkDiscoveryManager.stopDiscovery()
         }
     }
 }
 
 struct DeviceSelectionView: View {
-    @ObservedObject var networkManager: NetworkDiscoveryManager
+    @ObservedObject var networkDiscoveryManager: NetworkDiscoveryManager
     @Binding var selectedDevice: String?
     @Binding var showDeviceSelection: Bool
     
     var body: some View {
-        List(networkManager.discoveredDevices, id: \.self) { device in
+        List(networkDiscoveryManager.discoveredDevices, id: \.self) { device in
             NavigationLink(destination: TabContentView(
                 bluetoothManager: BluetoothManager.shared,
                 deviceName: device
@@ -49,7 +49,7 @@ struct DeviceSelectionView: View {
         }
         .navigationTitle("Select Device")
         .overlay {
-            if networkManager.discoveredDevices.isEmpty {
+            if networkDiscoveryManager.discoveredDevices.isEmpty {
                 VStack {
                     ProgressView()
                     Text("Searching for devices...")
@@ -72,12 +72,12 @@ struct TabContentView: View {
                     Label("Network", systemImage: "wifi")
                 }
             
-            MQTTTabView(bluetoothManager: bluetoothManager, deviceName: deviceName, deviceService: DeviceService(deviceName: deviceName))
+            MQTTTabView(bluetoothManager: bluetoothManager, deviceName: deviceName, restApiService: RestApiService(deviceName: deviceName))
                 .tabItem {
                     Label("MQTT", systemImage: "cloud")
                 }
             
-            SettingsTabView(bluetoothManager: bluetoothManager, deviceName: deviceName, deviceService: DeviceService(deviceName: deviceName))
+            SettingsTabView(bluetoothManager: bluetoothManager, deviceName: deviceName, restApiService: RestApiService(deviceName: deviceName))
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
@@ -93,7 +93,7 @@ struct TabContentView: View {
 struct NetworkTabView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     let deviceName: String
-    @StateObject private var viewModel: DeviceViewModel
+    @StateObject private var restApiModel: RestApiModel
     @State private var wifiStatus: WiFiStatus?
     @State private var wifiNetworks: [WiFiNetwork] = []
     @State private var selectedNetwork: WiFiNetwork?
@@ -102,14 +102,14 @@ struct NetworkTabView: View {
     @State private var connectionError: String?
     @State private var showErrorAlert: Bool = false
     @State private var timer: Timer?
-    let deviceService: DeviceService
+    let restApiService: RestApiService
     
     init(bluetoothManager: BluetoothManager, deviceName: String) {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
-        let service = DeviceService(deviceName: deviceName)
-        self.deviceService = service
-        _viewModel = StateObject(wrappedValue: DeviceViewModel(deviceName: deviceName))
+        let service = RestApiService(deviceName: deviceName)
+        self.restApiService = service
+        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
     }
     
     var body: some View {
@@ -207,8 +207,8 @@ struct NetworkTabView: View {
     private func fetchWiFiData() async {
         do {
             // Fetch both status and scan results concurrently
-            async let statusResponse = deviceService.fetchData(from: "/wifi_fetch_status")
-            async let scanResponse = deviceService.fetchData(from: "/wifi_scan_result")
+            async let statusResponse = restApiService.fetchData(from: "/wifi_fetch_status")
+            async let scanResponse = restApiService.fetchData(from: "/wifi_scan_result")
             
             let (status, scan) = try await (statusResponse, scanResponse)
             
@@ -252,7 +252,7 @@ struct NetworkTabView: View {
             do {
                 // Set a timeout of 10 seconds
                 try await withTimeout(seconds: 10) {
-                    try await viewModel.deviceService.post(endpoint: "/wifi_connect", data: credentials)
+                    try await restApiModel.restApiService.post(endpoint: "/wifi_connect", data: credentials)
                     // Refresh all data after successful connection
                     await fetchWiFiData()
                 }
@@ -297,7 +297,7 @@ struct NetworkTabView: View {
 struct MQTTTabView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     let deviceName: String
-    @StateObject private var viewModel: DeviceViewModel
+    @StateObject private var restApiModel: RestApiModel
     @State private var mqttSettings: MQTTSettings?
     @State private var editedServer: String = ""
     @State private var editedPort: String = ""
@@ -306,13 +306,13 @@ struct MQTTTabView: View {
     @State private var isSaving: Bool = false
     @State private var showErrorAlert: Bool = false
     @State private var errorMessage: String?
-    let deviceService: DeviceService
+    let restApiService: RestApiService
     
-    init(bluetoothManager: BluetoothManager, deviceName: String, deviceService: DeviceService) {
+    init(bluetoothManager: BluetoothManager, deviceName: String, restApiService: RestApiService) {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
-        self.deviceService = deviceService
-        _viewModel = StateObject(wrappedValue: DeviceViewModel(deviceName: deviceName))
+        self.restApiService = restApiService
+        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
     }
     
     var body: some View {
@@ -398,7 +398,7 @@ struct MQTTTabView: View {
     
     private func fetchMQTTSettings() async {
         do {
-            let response = try await deviceService.fetchData(from: "/mqtt_fetch_settings")
+            let response = try await restApiService.fetchData(from: "/mqtt_fetch_settings")
             guard let data = response.data(using: .utf8) else {
                 throw URLError(.cannotParseResponse)
             }
@@ -434,7 +434,7 @@ struct MQTTTabView: View {
             isSaving = true
             
             do {
-                try await deviceService.post(endpoint: "/mqtt_update_settings", data: updatedSettings)
+                try await restApiService.post(endpoint: "/mqtt_update_settings", data: updatedSettings)
                 // Refresh settings after successful update
                 await fetchMQTTSettings()
             } catch {
@@ -450,19 +450,19 @@ struct MQTTTabView: View {
 struct SettingsTabView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     let deviceName: String
-    @StateObject private var viewModel: DeviceViewModel
+    @StateObject private var restApiModel: RestApiModel
     @State private var telnetEnabled: Bool = false
     @State private var previousTelnetEnabled: Bool = false
     @State private var isSaving: Bool = false
     @State private var showErrorAlert: Bool = false
     @State private var errorMessage: String?
-    let deviceService: DeviceService
+    let restApiService: RestApiService
     
-    init(bluetoothManager: BluetoothManager, deviceName: String, deviceService: DeviceService) {
+    init(bluetoothManager: BluetoothManager, deviceName: String, restApiService: RestApiService) {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
-        self.deviceService = deviceService
-        _viewModel = StateObject(wrappedValue: DeviceViewModel(deviceName: deviceName))
+        self.restApiService = restApiService
+        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
     }
     
     var body: some View {
@@ -500,7 +500,7 @@ struct SettingsTabView: View {
     
     private func fetchTelnetSettings() async {
         do {
-            let response = try await deviceService.fetchData(from: "/get_telnet")
+            let response = try await restApiService.fetchData(from: "/get_telnet")
             guard let data = response.data(using: .utf8) else {
                 throw URLError(.cannotParseResponse)
             }
@@ -523,14 +523,14 @@ struct SettingsTabView: View {
             isSaving = true
             
             do {
-                try await deviceService.post(endpoint: "/set_telnet", data: settings)
+                try await restApiService.post(endpoint: "/set_telnet", data: settings)
                 // Refresh settings after successful update
                 await fetchTelnetSettings()
             } catch {
                 errorMessage = "Failed to save settings: \(error.localizedDescription)"
                 showErrorAlert = true
                 // Restore previous state on error
-                if let data = viewModel.telnetSettings.data(using: .utf8),
+                if let data = restApiModel.telnetSettings.data(using: .utf8),
                    let settings = try? JSONDecoder().decode(TelnetSettings.self, from: data) {
                     telnetEnabled = settings.enabled
                 }
@@ -555,24 +555,24 @@ struct SystemStatus: Codable {
 struct StatusTabView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     let deviceName: String
-    @StateObject private var viewModel: DeviceViewModel
+    @StateObject private var restApiModel: RestApiModel
     @State private var systemStatus: SystemStatus?
     @State private var timer: Timer?
     @State private var showDeviceSelection: Bool = true
-    let deviceService: DeviceService
+    let restApiService: RestApiService
     
     init(bluetoothManager: BluetoothManager, deviceName: String) {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
-        let service = DeviceService(deviceName: deviceName)
-        self.deviceService = service
-        _viewModel = StateObject(wrappedValue: DeviceViewModel(deviceName: deviceName))
+        let service = RestApiService(deviceName: deviceName)
+        self.restApiService = service
+        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
     }
     
     var body: some View {
         NavigationView {
             Form {
-                if let error = viewModel.error {
+                if let error = restApiModel.error {
                     Section {
                         Text(error)
                             .foregroundColor(.red)
@@ -681,7 +681,7 @@ struct StatusTabView: View {
     
     private func fetchSystemStatus() async {
         do {
-            let data = try await deviceService.fetchData(from: "/system_fetch_status")
+            let data = try await restApiService.fetchData(from: "/system_fetch_status")
             if let status = try? JSONDecoder().decode(SystemStatus.self, from: data.data(using: .utf8) ?? Data()) {
                 withAnimation {
                     systemStatus = status

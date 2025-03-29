@@ -2,7 +2,7 @@ import Foundation
 import os.log
 
 @MainActor
-class DeviceViewModel: ObservableObject {
+class RestApiModel: ObservableObject {
     @Published var wifiStatus: String = ""
     @Published var wifiScanResults: String = ""
     @Published var mqttSettings: String = ""
@@ -12,13 +12,13 @@ class DeviceViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     
     let deviceName: String
-    let deviceService: DeviceService
+    let restApiService: RestApiService
     
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "DeviceViewModel")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "RestApiModel")
     
     init(deviceName: String) {
         self.deviceName = deviceName
-        self.deviceService = DeviceService(deviceName: deviceName)
+        self.restApiService = RestApiService(deviceName: deviceName)
     }
     
     func fetchAllData() async {
@@ -26,11 +26,11 @@ class DeviceViewModel: ObservableObject {
         error = nil
         
         do {
-            async let wifiStatusTask = deviceService.fetchWifiStatus()
-            async let wifiScanTask = deviceService.fetchWifiScanResults()
-            async let mqttTask = deviceService.fetchMqttSettings()
-            async let telnetTask = deviceService.fetchTelnetSettings()
-            async let systemTask = deviceService.fetchSystemStatus()
+            async let wifiStatusTask = restApiService.fetchWifiStatus()
+            async let wifiScanTask = restApiService.fetchWifiScanResults()
+            async let mqttTask = restApiService.fetchMqttSettings()
+            async let telnetTask = restApiService.fetchTelnetSettings()
+            async let systemTask = restApiService.fetchSystemStatus()
             
             let (wifiStatus, wifiScan, mqtt, telnet, system) = try await (wifiStatusTask, wifiScanTask, mqttTask, telnetTask, systemTask)
             

@@ -1,14 +1,14 @@
 import Foundation
 import os.log
 
-class DeviceService {
+class RestApiService {
     private let baseURL: String
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "DeviceService")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "RestApiService")
     
     init(deviceName: String) {
         // Construct the base URL from the device name
         self.baseURL = "http://\(deviceName).local"
-        logger.info("Initializing DeviceService with base URL: \(self.baseURL)")
+        logger.info("Initializing RestApiService with base URL: \(self.baseURL)")
     }
     
     func fetchData(from endpoint: String) async throws -> String {
