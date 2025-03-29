@@ -1,162 +1,247 @@
 import SwiftUI
 import CoreBluetooth
-import os.log
+import os
+
+enum NavigationSource {
+    case deviceList
+    case provision
+}
 
 struct ProvisionView: View {
-    @StateObject private var bluetoothManager = BluetoothManager.shared
-    @State private var showScanner = false
-    @State private var showDeviceList = false
-    @State private var scannedCode: String?
-    @State private var showAlert = false
-    @State private var alertMessage = ""
-    @State private var isConnecting = false
-    @State private var navigateToDeviceStatus = false
-    
+    @ObservedObject var bluetoothManager: BluetoothManager
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.presentationMode) private var presentationMode
+    let navigationSource: NavigationSource
+    let allowDismiss: Bool
+    @State private var isNavigatingBack = false
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "ProvisionView")
     
+    init(bluetoothManager: BluetoothManager, navigationSource: NavigationSource, allowDismiss: Bool = true) {
+        self.bluetoothManager = bluetoothManager
+        self.navigationSource = navigationSource
+        self.allowDismiss = allowDismiss
+    }
+    
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                Spacer()
-                    .frame(height: 100)
-                
-                // Main Buttons
-                VStack(spacing: 16) {
-                    Button(action: {
-                        showScanner = true
-                    }) {
-                        HStack {
-                            Image(systemName: "qrcode.viewfinder")
-                            Text("Connect with QR Code")
-                        }
-                        .frame(width: 280)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                    }
-                    
-                    Button(action: {
-                        bluetoothManager.startScanning()
-                        showDeviceList = true
-                    }) {
-                        HStack {
-                            Image(systemName: "bluetooth")
-                            Text("Scan for Devices")
-                        }
-                        .frame(width: 280)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+        TabView {
+            ProvisioningView(bluetoothManager: bluetoothManager)
+                .tabItem {
+                    Label("Provision", systemImage: "wifi")
+                }
+            
+            StatusView(bluetoothManager: bluetoothManager)
+                .tabItem {
+                    Label("Status", systemImage: "info.circle")
+                }
+        }
+        .onAppear {
+            logger.info("ProvisionView appeared (source: \(String(describing: navigationSource)))")
+            bluetoothManager.startWiFiScan()
+            isNavigatingBack = false
+        }
+        .onDisappear {
+            if isNavigatingBack || !allowDismiss {
+                logger.info("ProvisionView disappeared - cleaning up connection (source: \(String(describing: navigationSource)))")
+                bluetoothManager.disconnect()
+                bluetoothManager.connectionStatus = .disconnected
+                bluetoothManager.connectedPeripheral = nil
+            }
+        }
+        .onChange(of: presentationMode.wrappedValue.isPresented) { isPresented in
+            if !isPresented {
+                isNavigatingBack = true
+            }
+        }
+        .toolbar {
+            if navigationSource == .provision {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Back") {
+                        isNavigatingBack = true
+                        dismiss()
                     }
                 }
-                
-                Spacer()
+            }
+        }
+        .interactiveDismissDisabled(!allowDismiss)
+    }
+}
+
+struct ProvisioningView: View {
+    @ObservedObject var bluetoothManager: BluetoothManager
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedNetwork: String?
+    @State private var password = ""
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "ProvisioningView")
+    
+    var body: some View {
+        Form {
+            Section(header: Text("WiFi Networks")) {
+                if bluetoothManager.wifiNetworks.isEmpty {
+                    Text("No WiFi networks available")
+                        .foregroundColor(.secondary)
+                } else {
+                    Picker("Select Network", selection: $selectedNetwork) {
+                        Text("Select a network").tag(Optional<String>.none)
+                        ForEach(bluetoothManager.wifiNetworks, id: \.self) { network in
+                            Text(network).tag(Optional(network))
+                        }
+                    }
+                }
             }
             
-            if isConnecting {
-                Color.black.opacity(0.4)
-                    .edgesIgnoringSafeArea(.all)
+            Section(header: Text("Password")) {
+                SecureField("WiFi Password", text: $password)
+            }
+            
+            Section {
+                Button("Provision") {
+                    provisionDevice()
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(canProvision ? Color.blue : Color.blue.opacity(0.3))
+                .foregroundColor(.white)
+                .cornerRadius(10)
+                .disabled(!canProvision)
                 
-                VStack {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.5)
-                    Text("Connecting...")
-                        .foregroundColor(.white)
-                        .padding(.top)
+                if !bluetoothManager.currentProvisioningMessage.isEmpty {
+                    Text(bluetoothManager.currentProvisioningMessage)
+                        .foregroundColor(.secondary)
+                        .font(.footnote)
+                        .padding(.top, 4)
                 }
             }
-        }
-        .navigationTitle("Provision Device")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $showDeviceList) {
-            DeviceListView(bluetoothManager: bluetoothManager)
-        }
-        .navigationDestination(isPresented: $navigateToDeviceStatus) {
-            DeviceStatusView(
-                bluetoothManager: bluetoothManager,
-                navigationSource: .provision,
-                allowDismiss: false
-            )
-        }
-        .sheet(isPresented: $showScanner, onDismiss: {
-            scannedCode = nil
-        }) {
-            ZStack {
-                QRScannerView(scannedCode: $scannedCode)
-                VStack {
-                    Spacer()
-                    Text("Align QR code within frame")
-                        .foregroundColor(.white)
-                        .padding()
-                        .background(Color.black.opacity(0.7))
-                        .cornerRadius(8)
-                        .padding(.bottom, 40)
-                }
-            }
-            .onChange(of: scannedCode) { newValue in
-                if let code = newValue {
-                    handleScannedCode(code)
+            
+            if case .inProgress = bluetoothManager.provisioningStatus {
+                Section {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                        Text("Provisioning...")
+                        Spacer()
+                    }
                 }
             }
         }
         .onAppear {
-            logger.info("ProvisionView appeared")
+            logger.info("ProvisioningView tab appeared")
         }
         .onDisappear {
-            logger.info("ProvisionView disappeared")
+            logger.info("ProvisioningView tab disappeared")
         }
-        .onChange(of: bluetoothManager.connectionStatus) { status in
-            logger.info("Connection status changed to: \(String(describing: status))")
-            switch status {
-            case .connecting:
-                isConnecting = true
-            case .error(let message):
-                isConnecting = false
-                alertMessage = message
+        .onChange(of: bluetoothManager.provisioningStatus) { _ in
+            switch bluetoothManager.provisioningStatus {
+            case .success:
+                alertMessage = "Device successfully provisioned"
                 showAlert = true
-                showScanner = false
-                navigateToDeviceStatus = false
-            case .connected:
-                isConnecting = false
-                navigateToDeviceStatus = true
-            case .disconnected:
-                isConnecting = false
-                if navigateToDeviceStatus {
-                    navigateToDeviceStatus = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    bluetoothManager.disconnect()
+                    dismiss()
                 }
+            case .failed(let error):
+                alertMessage = "Provisioning failed: \(error)"
+                showAlert = true
+            default:
+                break
             }
         }
-        .alert("Connection Error", isPresented: $showAlert) {
-            Button("OK", role: .cancel) {
-                showAlert = false
-                if case .error = bluetoothManager.connectionStatus {
-                    bluetoothManager.connectionStatus = .disconnected
-                }
-            }
-        } message: {
-            Text(alertMessage)
+        .alert(alertMessage, isPresented: $showAlert) {
+            Button("OK", role: .cancel) {}
         }
     }
     
-    private func handleScannedCode(_ code: String) {
-        logger.info("Handling scanned QR code")
-        logger.info("QR code scanned: \(code)")
-        if code.isEmpty {
-            alertMessage = "Invalid QR code"
-            showAlert = true
-            return
+    private var canProvision: Bool {
+        selectedNetwork != nil && !password.isEmpty
+    }
+    
+    private func provisionDevice() {
+        guard let ssid = selectedNetwork else { return }
+        bluetoothManager.provisionWiFi(ssid: ssid, password: password)
+    }
+}
+
+struct StatusView: View {
+    @ObservedObject var bluetoothManager: BluetoothManager
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "StatusView")
+    
+    var body: some View {
+        List {
+            Section("Connection Status") {
+                HStack {
+                    Text("Status")
+                    Spacer()
+                    Text(statusText)
+                        .foregroundColor(statusColor)
+                }
+                
+                if let peripheral = bluetoothManager.connectedPeripheral {
+                    HStack {
+                        Text("Device Name")
+                        Spacer()
+                        Text(peripheral.name ?? "Unknown")
+                    }
+                    
+                    HStack {
+                        Text("Identifier")
+                        Spacer()
+                        Text(peripheral.identifier.uuidString)
+                            .font(.caption)
+                    }
+                    
+                    if let rssi = bluetoothManager.rssi {
+                        HStack {
+                            Text("Signal Strength")
+                            Spacer()
+                            Text("\(rssi) dBm")
+                        }
+                    }
+                }
+            }
+            
+            Section {
+                Button("Disconnect", role: .destructive) {
+                    bluetoothManager.disconnect()
+                }
+            }
         }
-        showScanner = false
-        isConnecting = true
-        bluetoothManager.connectToDeviceWithIdentifier(code)
+        .onAppear {
+            logger.info("StatusView tab appeared")
+        }
+        .onDisappear {
+            logger.info("StatusView tab disappeared")
+        }
+    }
+    
+    private var statusColor: Color {
+        switch bluetoothManager.connectionStatus {
+        case .connected:
+            return .green
+        case .connecting:
+            return .orange
+        case .disconnected:
+            return .red
+        case .error:
+            return .red
+        }
+    }
+    
+    private var statusText: String {
+        switch bluetoothManager.connectionStatus {
+        case .connected:
+            return "Connected"
+        case .connecting:
+            return "Connecting..."
+        case .disconnected:
+            return "Disconnected"
+        case .error(let message):
+            return "Error: \(message)"
+        }
     }
 }
 
 #Preview {
-    NavigationStack {
-        ProvisionView()
-    }
+    ProvisionView(bluetoothManager: BluetoothManager.shared, navigationSource: .deviceList, allowDismiss: true)
 } 

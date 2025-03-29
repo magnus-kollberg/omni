@@ -33,7 +33,7 @@ struct ContentView: View {
                 // Main Options
                 VStack(spacing: 16) {
                     NavigationLink {
-                        ProvisionView()
+                        BluetoothConnectView()
                     } label: {
                         HStack {
                             Image(systemName: "wifi")

@@ -2,7 +2,7 @@ import Foundation
 import Network
 import os.log
 
-class NetworkDeviceManager: NSObject, ObservableObject {
+class NetworkDiscoveryManager: NSObject, ObservableObject {
     @Published var discoveredDevices: [String] = []
     @Published var error: String?
     @Published var isScanning = false

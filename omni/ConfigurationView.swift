@@ -5,7 +5,7 @@ import Combine
 
 struct ConfigurationView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
-    @StateObject private var networkManager = NetworkDeviceManager()
+    @StateObject private var networkManager = NetworkDiscoveryManager()
     @State private var selectedDevice: String?
     @State private var showDeviceSelection = true
     
@@ -27,7 +27,7 @@ struct ConfigurationView: View {
 }
 
 struct DeviceSelectionView: View {
-    @ObservedObject var networkManager: NetworkDeviceManager
+    @ObservedObject var networkManager: NetworkDiscoveryManager
     @Binding var selectedDevice: String?
     @Binding var showDeviceSelection: Bool
     
