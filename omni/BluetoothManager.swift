@@ -4,7 +4,7 @@ import os.log
 
 class BluetoothManager: NSObject, ObservableObject {
     static let shared = BluetoothManager()
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "Bluetooth")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "BluetoothManager")
     
     private var centralManager: CBCentralManager!
     @Published var connectedPeripheral: CBPeripheral?

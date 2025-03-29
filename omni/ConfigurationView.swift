@@ -93,7 +93,6 @@ struct TabContentView: View {
 struct NetworkTabView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     let deviceName: String
-    @StateObject private var restApiModel: RestApiModel
     @State private var wifiStatus: WiFiStatus?
     @State private var wifiNetworks: [WiFiNetwork] = []
     @State private var selectedNetwork: WiFiNetwork?
@@ -107,9 +106,7 @@ struct NetworkTabView: View {
     init(bluetoothManager: BluetoothManager, deviceName: String) {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
-        let service = RestApiService(deviceName: deviceName)
-        self.restApiService = service
-        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
+        self.restApiService = RestApiService(deviceName: deviceName)
     }
     
     var body: some View {
@@ -252,7 +249,7 @@ struct NetworkTabView: View {
             do {
                 // Set a timeout of 10 seconds
                 try await withTimeout(seconds: 10) {
-                    try await restApiModel.restApiService.post(endpoint: "/wifi_connect", data: credentials)
+                    try await restApiService.post(endpoint: "/wifi_connect", data: credentials)
                     // Refresh all data after successful connection
                     await fetchWiFiData()
                 }
@@ -297,7 +294,6 @@ struct NetworkTabView: View {
 struct MQTTTabView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     let deviceName: String
-    @StateObject private var restApiModel: RestApiModel
     @State private var mqttSettings: MQTTSettings?
     @State private var editedServer: String = ""
     @State private var editedPort: String = ""
@@ -312,7 +308,6 @@ struct MQTTTabView: View {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
         self.restApiService = restApiService
-        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
     }
     
     var body: some View {
@@ -450,7 +445,6 @@ struct MQTTTabView: View {
 struct SettingsTabView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     let deviceName: String
-    @StateObject private var restApiModel: RestApiModel
     @State private var telnetEnabled: Bool = false
     @State private var previousTelnetEnabled: Bool = false
     @State private var isSaving: Bool = false
@@ -462,7 +456,6 @@ struct SettingsTabView: View {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
         self.restApiService = restApiService
-        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
     }
     
     var body: some View {
@@ -530,10 +523,7 @@ struct SettingsTabView: View {
                 errorMessage = "Failed to save settings: \(error.localizedDescription)"
                 showErrorAlert = true
                 // Restore previous state on error
-                if let data = restApiModel.telnetSettings.data(using: .utf8),
-                   let settings = try? JSONDecoder().decode(TelnetSettings.self, from: data) {
-                    telnetEnabled = settings.enabled
-                }
+                telnetEnabled = previousTelnetEnabled  // Use the previousTelnetEnabled state we're already tracking
             }
             
             isSaving = false
@@ -555,7 +545,6 @@ struct SystemStatus: Codable {
 struct StatusTabView: View {
     @ObservedObject var bluetoothManager: BluetoothManager
     let deviceName: String
-    @StateObject private var restApiModel: RestApiModel
     @State private var systemStatus: SystemStatus?
     @State private var timer: Timer?
     @State private var showDeviceSelection: Bool = true
@@ -564,94 +553,85 @@ struct StatusTabView: View {
     init(bluetoothManager: BluetoothManager, deviceName: String) {
         self.bluetoothManager = bluetoothManager
         self.deviceName = deviceName
-        let service = RestApiService(deviceName: deviceName)
-        self.restApiService = service
-        _restApiModel = StateObject(wrappedValue: RestApiModel(deviceName: deviceName))
+        self.restApiService = RestApiService(deviceName: deviceName)
     }
     
     var body: some View {
         NavigationView {
             Form {
-                if let error = restApiModel.error {
-                    Section {
-                        Text(error)
-                            .foregroundColor(.red)
-                    }
-                } else {
-                    // Date Section
-                    Section(header: Text("Date & Time")) {
-                        Text(systemStatus?.current_time ?? "Loading...")
-                            .font(.system(.body, design: .monospaced))
-                    }
-                    
-                    // RAM Section
-                    Section(header: Text("Memory (RAM)")) {
-                        if let status = systemStatus {
-                            ProgressView(value: Double(status.used_ram), total: Double(status.total_ram))
-                                .tint(.blue)
-                                .animation(.smooth, value: status.used_ram)
-                            
-                            HStack {
-                                Text("Used:")
-                                Spacer()
-                                Text("\(formatBytes(status.used_ram))")
-                            }
-                            .animation(.none, value: status.used_ram)
-                            
-                            HStack {
-                                Text("Free:")
-                                Spacer()
-                                Text("\(formatBytes(status.free_ram))")
-                            }
-                            .animation(.none, value: status.free_ram)
-                            
-                            HStack {
-                                Text("Total:")
-                                Spacer()
-                                Text("\(formatBytes(status.total_ram))")
-                            }
+                // Date Section
+                Section(header: Text("Date & Time")) {
+                    Text(systemStatus?.current_time ?? "Loading...")
+                        .font(.system(.body, design: .monospaced))
+                }
+                
+                // RAM Section
+                Section(header: Text("Memory (RAM)")) {
+                    if let status = systemStatus {
+                        ProgressView(value: Double(status.used_ram), total: Double(status.total_ram))
+                            .tint(.blue)
+                            .animation(.smooth, value: status.used_ram)
+                        
+                        HStack {
+                            Text("Used:")
+                            Spacer()
+                            Text("\(formatBytes(status.used_ram))")
+                        }
+                        .animation(.none, value: status.used_ram)
+                        
+                        HStack {
+                            Text("Free:")
+                            Spacer()
+                            Text("\(formatBytes(status.free_ram))")
+                        }
+                        .animation(.none, value: status.free_ram)
+                        
+                        HStack {
+                            Text("Total:")
+                            Spacer()
+                            Text("\(formatBytes(status.total_ram))")
                         }
                     }
-                    
-                    // File System Section
-                    Section(header: Text("File System")) {
-                        if let status = systemStatus {
-                            ProgressView(value: Double(status.used_flash), total: Double(status.total_flash))
-                                .tint(.orange)
-                                .animation(.smooth, value: status.used_flash)
-                            
-                            HStack {
-                                Text("Used:")
-                                Spacer()
-                                Text("\(formatBytes(status.used_flash))")
-                            }
-                            .animation(.none, value: status.used_flash)
-                            
-                            HStack {
-                                Text("Free:")
-                                Spacer()
-                                Text("\(formatBytes(status.free_flash))")
-                            }
-                            .animation(.none, value: status.free_flash)
-                            
-                            HStack {
-                                Text("Total:")
-                                Spacer()
-                                Text("\(formatBytes(status.total_flash))")
-                            }
+                }
+                
+                // File System Section
+                Section(header: Text("File System")) {
+                    if let status = systemStatus {
+                        ProgressView(value: Double(status.used_flash), total: Double(status.total_flash))
+                            .tint(.orange)
+                            .animation(.smooth, value: status.used_flash)
+                        
+                        HStack {
+                            Text("Used:")
+                            Spacer()
+                            Text("\(formatBytes(status.used_flash))")
+                        }
+                        .animation(.none, value: status.used_flash)
+                        
+                        HStack {
+                            Text("Free:")
+                            Spacer()
+                            Text("\(formatBytes(status.free_flash))")
+                        }
+                        .animation(.none, value: status.free_flash)
+                        
+                        HStack {
+                            Text("Total:")
+                            Spacer()
+                            Text("\(formatBytes(status.total_flash))")
                         }
                     }
-                    
-                    // OS Section
-                    Section(header: Text("Operating System")) {
-                        if let status = systemStatus {
-                            HStack {
-                                Text("Active Tasks:")
-                                Spacer()
-                                Text("\(status.task_count)")
-                            }
-                            .animation(.none, value: status.task_count)
+                }
+                
+                // OS Section
+                Section(header: Text("Operating System")) {
+                    if let status = systemStatus {
+                        HStack {
+                            Text("Active Tasks:")
+                            Spacer()
+                            Text("\(status.task_count)")
                         }
+                        .animation(.none, value: status.task_count)
                     }
                 }
             }

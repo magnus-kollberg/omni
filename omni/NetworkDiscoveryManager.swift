@@ -8,7 +8,7 @@ class NetworkDiscoveryManager: NSObject, ObservableObject {
     @Published var isScanning = false
     private var browser: NWBrowser?
     private let queue = DispatchQueue(label: "com.omni.networkdiscovery")
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "NetworkDiscovery")
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "NetworkDiscoveryManager")
     
     override init() {
         super.init()
