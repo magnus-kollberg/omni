@@ -11,6 +11,7 @@ import UIKit
 @main
 struct omniApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @AppStorage("onboardingCompleted") private var onboardingCompleted = false
     
     init() {
         // Request permissions when the app starts
@@ -27,7 +28,11 @@ struct omniApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            if onboardingCompleted {
+                ContentView()
+            } else {
+                OnboardingView()
+            }
         }
     }
 }

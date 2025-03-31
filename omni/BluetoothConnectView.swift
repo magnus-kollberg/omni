@@ -11,30 +11,72 @@ struct BluetoothConnectView: View {
     @State private var alertMessage = ""
     @State private var isConnecting = false
     @State private var navigateToProvision = false
+    @State private var showingToast = false
+    @State private var toastMessage = ""
+    @State private var toastType: ToastType = .info
     
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "BluetoothConnectView")
     
     var body: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                Spacer()
-                    .frame(height: 100)
+        LoadingView(isLoading: $isConnecting, message: "Connecting to device...") {
+            VStack(spacing: 24) {
+                // Header section
+                VStack(spacing: 12) {
+                    Image(systemName: "bluetooth.circle.fill")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 100, height: 100)
+                        .foregroundColor(.blue)
+                        .accessibilityHidden(true)
+                    
+                    Text("Connect to Device")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .accessibilityAddTraits(.isHeader)
+                    
+                    Text("Select a method to connect to your IoT device")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                        .accessibilityLabel("You can connect using a QR code or by scanning for nearby devices")
+                }
+                .padding(.top, 40)
                 
-                // Main Buttons
-                VStack(spacing: 16) {
+                Spacer()
+                
+                // Connection options
+                VStack(spacing: 20) {
                     Button(action: {
                         showScanner = true
                     }) {
                         HStack {
                             Image(systemName: "qrcode.viewfinder")
-                            Text("Connect with QR Code")
+                                .font(.title2)
+                                .frame(width: 30)
+                            
+                            VStack(alignment: .leading) {
+                                Text("Scan QR Code")
+                                    .font(.headline)
+                                
+                                Text("Quickly connect with a QR code")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.gray)
                         }
-                        .frame(width: 280)
                         .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                        .background(Color(.systemBackground))
                         .cornerRadius(10)
+                        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Connect with QR code")
+                    .accessibilityHint("Opens the camera to scan a QR code")
                     
                     Button(action: {
                         bluetoothManager.startScanning()
@@ -42,30 +84,53 @@ struct BluetoothConnectView: View {
                     }) {
                         HStack {
                             Image(systemName: "bluetooth")
-                            Text("Scan for Devices")
+                                .font(.title2)
+                                .frame(width: 30)
+                            
+                            VStack(alignment: .leading) {
+                                Text("Browse Nearby Devices")
+                                    .font(.headline)
+                                
+                                Text("Scan for available Bluetooth devices")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.gray)
                         }
-                        .frame(width: 280)
                         .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                        .background(Color(.systemBackground))
                         .cornerRadius(10)
+                        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 2)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Scan for devices")
+                    .accessibilityHint("Shows a list of nearby Bluetooth devices")
                 }
+                .padding(.horizontal)
                 
                 Spacer()
-            }
-            
-            if isConnecting {
-                Color.black.opacity(0.4)
-                    .edgesIgnoringSafeArea(.all)
                 
+                // Help text
                 VStack {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.5)
-                    Text("Connecting...")
-                        .foregroundColor(.white)
-                        .padding(.top)
+                    if let peripheral = bluetoothManager.connectedPeripheral {
+                        Text("Currently connected to: \(peripheral.name ?? "Unknown Device")")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                            .padding()
+                    }
+                    
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.secondary)
+                        Text("Make sure your device is in pairing mode")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.bottom)
                 }
             }
         }
@@ -86,9 +151,11 @@ struct BluetoothConnectView: View {
         }) {
             ZStack {
                 QRScannerView(scannedCode: $scannedCode)
+                
                 VStack {
                     Spacer()
                     Text("Align QR code within frame")
+                        .font(.headline)
                         .foregroundColor(.white)
                         .padding()
                         .background(Color.black.opacity(0.7))
@@ -119,9 +186,19 @@ struct BluetoothConnectView: View {
                 showAlert = true
                 showScanner = false
                 navigateToProvision = false
+                
+                // Show toast for error too
+                toastMessage = "Connection failed: \(message)"
+                toastType = .error
+                showingToast = true
             case .connected:
                 isConnecting = false
                 navigateToProvision = true
+                
+                // Show toast for successful connection
+                toastMessage = "Connected successfully"
+                toastType = .success
+                showingToast = true
             case .disconnected:
                 isConnecting = false
                 if navigateToProvision {
@@ -139,6 +216,7 @@ struct BluetoothConnectView: View {
         } message: {
             Text(alertMessage)
         }
+        .toast(isShowing: $showingToast, message: toastMessage, type: toastType)
     }
     
     private func handleScannedCode(_ code: String) {
@@ -159,4 +237,4 @@ struct BluetoothConnectView: View {
     NavigationStack {
         BluetoothConnectView()
     }
-} 
+}

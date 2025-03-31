@@ -73,59 +73,156 @@ struct ProvisioningView: View {
     @State private var password = ""
     @State private var showAlert = false
     @State private var alertMessage = ""
+    @State private var isProvisioning = false
+    @State private var showingToast = false
+    @State private var toastMessage = ""
+    @State private var toastType: ToastType = .info
+    @State private var showPassword = false
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.omni", category: "ProvisioningView")
     
     var body: some View {
-        Form {
-            Section(header: Text("WiFi Networks")) {
-                if bluetoothManager.wifiNetworks.isEmpty {
-                    Text("No WiFi networks available")
-                        .foregroundColor(.secondary)
-                } else {
-                    Picker("Select Network", selection: $selectedNetwork) {
-                        Text("Select a network").tag(Optional<String>.none)
-                        ForEach(bluetoothManager.wifiNetworks, id: \.self) { network in
-                            Text(network).tag(Optional(network))
+        LoadingView(isLoading: $isProvisioning, message: "Setting up device...") {
+            Form {
+                Section(header: Text("WiFi Networks")) {
+                    if bluetoothManager.wifiNetworks.isEmpty {
+                        HStack {
+                            Text("Scanning for networks...")
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        }
+                    } else {
+                        HStack {
+                            Picker("Select Network", selection: $selectedNetwork) {
+                                Text("Select a network").tag(Optional<String>.none)
+                                ForEach(bluetoothManager.wifiNetworks, id: \.self) { network in
+                                    Text(network).tag(Optional(network))
+                                }
+                            }
+                            .accessibilityLabel("WiFi Network Selection")
+                            .accessibilityHint("Choose the WiFi network to connect your device to")
+                            
+                            if let selected = selectedNetwork, !selected.isEmpty {
+                                Button(action: {
+                                    selectedNetwork = nil
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.gray)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Clear selection")
+                            }
+                        }
+                        
+                        if selectedNetwork != nil {
+                            HStack {
+                                Text("Signal strength")
+                                Spacer()
+                                SignalStrengthIndicator(level: 3) // This should ideally use actual RSSI value
+                            }
                         }
                     }
-                }
-            }
-            
-            Section(header: Text("Password")) {
-                SecureField("WiFi Password", text: $password)
-            }
-            
-            Section {
-                Button("Provision") {
-                    provisionDevice()
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(canProvision ? Color.blue : Color.blue.opacity(0.3))
-                .foregroundColor(.white)
-                .cornerRadius(10)
-                .disabled(!canProvision)
-                
-                if !bluetoothManager.currentProvisioningMessage.isEmpty {
-                    Text(bluetoothManager.currentProvisioningMessage)
-                        .foregroundColor(.secondary)
-                        .font(.footnote)
-                        .padding(.top, 4)
-                }
-            }
-            
-            if case .inProgress = bluetoothManager.provisioningStatus {
-                Section {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle())
-                        Text("Provisioning...")
-                        Spacer()
+                    
+                    Button("Refresh Networks") {
+                        withAnimation {
+                            bluetoothManager.wifiNetworks.removeAll()
+                        }
+                        bluetoothManager.startWiFiScan()
+                        
+                        // Show toast for feedback
+                        toastMessage = "Scanning for networks..."
+                        toastType = .info
+                        showingToast = true
                     }
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                }
+                
+                Section(header: Text("Password")) {
+                    HStack {
+                        if showPassword {
+                            TextField("WiFi Password", text: $password)
+                                .textContentType(.password)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                        } else {
+                            SecureField("WiFi Password", text: $password)
+                        }
+                        
+                        Button(action: {
+                            showPassword.toggle()
+                        }) {
+                            Image(systemName: showPassword ? "eye.slash" : "eye")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .accessibilityLabel("WiFi Password")
+                    .accessibilityHint("Enter the password for the selected WiFi network")
+                }
+                
+                Section {
+                    Button(action: {
+                        provisionDevice()
+                    }) {
+                        HStack {
+                            Spacer()
+                            Text("Connect Device")
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(!canProvision)
+                    .accessibilityLabel("Connect Device")
+                    .accessibilityHint("Start configuring this device with the selected WiFi network")
+                    
+                    if !bluetoothManager.currentProvisioningMessage.isEmpty {
+                        Text(bluetoothManager.currentProvisioningMessage)
+                            .foregroundColor(.secondary)
+                            .font(.footnote)
+                            .padding(.top, 4)
+                    }
+                }
+                
+                if case .inProgress = bluetoothManager.provisioningStatus {
+                    Section {
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle())
+                            Text("Connecting device to WiFi...")
+                                .font(.headline)
+                                .multilineTextAlignment(.center)
+                            Text("This may take a minute")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical)
+                    }
+                }
+                
+                // Help section at the bottom
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                            Text("About WiFi Setup")
+                                .font(.headline)
+                        }
+                        
+                        Text("Your device needs WiFi to connect to the internet and receive updates. The device will use these credentials to join your home network.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
                 }
             }
         }
+        .navigationTitle("Setup WiFi")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             logger.info("ProvisioningView tab appeared")
         }
@@ -135,22 +232,38 @@ struct ProvisioningView: View {
         .onChange(of: bluetoothManager.provisioningStatus) { _ in
             switch bluetoothManager.provisioningStatus {
             case .success:
+                isProvisioning = false
                 alertMessage = "Device successfully provisioned"
                 showAlert = true
+                
+                // Show success toast
+                toastMessage = "Device connected to WiFi!"
+                toastType = .success
+                showingToast = true
+                
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     bluetoothManager.disconnect()
                     dismiss()
                 }
+            case .inProgress:
+                isProvisioning = true
             case .failed(let error):
+                isProvisioning = false
                 alertMessage = "Provisioning failed: \(error)"
                 showAlert = true
+                
+                // Show error toast
+                toastMessage = "Connection failed"
+                toastType = .error
+                showingToast = true
             default:
-                break
+                isProvisioning = false
             }
         }
         .alert(alertMessage, isPresented: $showAlert) {
             Button("OK", role: .cancel) {}
         }
+        .toast(isShowing: $showingToast, message: toastMessage, type: toastType)
     }
     
     private var canProvision: Bool {
@@ -159,7 +272,14 @@ struct ProvisioningView: View {
     
     private func provisionDevice() {
         guard let ssid = selectedNetwork else { return }
-        bluetoothManager.provisionWiFi(ssid: ssid, password: password)
+        
+        // Set provisioning status to show loading
+        isProvisioning = true
+        
+        // Small delay to ensure UI updates before starting the potentially blocking operation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            bluetoothManager.provisionWiFi(ssid: ssid, password: password)
+        }
     }
 }
 
@@ -244,4 +364,4 @@ struct StatusView: View {
 
 #Preview {
     ProvisionView(bluetoothManager: BluetoothManager.shared, navigationSource: .deviceList, allowDismiss: true)
-} 
+}
